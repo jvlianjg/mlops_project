@@ -1,88 +1,54 @@
 import streamlit as st
-import pandas as pd
-import matplotlib.pyplot as plt
-
-def shorten_categories(categories, cutoff):
-    categorical_map = {}
-    for i in range(len(categories)):
-        if categories.values[i] >= cutoff:
-            categorical_map[categories.index[i]] = categories.index[i]
-        else:
-            categorical_map[categories.index[i]] = 'Other'
-    return categorical_map
-
-def clean_experience(x):
-    if x == "More than 50 years":
-        return 50
-    if x == "Less than 1 year":
-        return 0.5
-    return float(x)
-
-def clean_education(x):
-    if 'Bachelor’s degree' in x:
-        return 'Bachelor’s degree'
-    if 'Master’s degree' in x:
-        return 'Master’s degree'
-    if 'Professional degree' in x or 'Other degree' in x:
-        return 'Post grad'
-    return 'Less than a Bachelors'
+import pickle
+import numpy as np
 
 
-@st.cache
-def load_data():
-    df = pd.read_csv('data/survey_results_public.csv')
-    df = df[["Country", "EdLevel", "YearsCodePro", "Employment", "ConvertedCompYearly"]]
-    df = df.rename({"ConvertedCompYearly": "Salary"}, axis=1)
-    df = df[df["Salary"].notnull()]
-    df = df.dropna()
-    df = df[df["Employment"] == "Employed, full-time"]
-    df = df.drop("Employment", axis=1)
+def load_model():
+    with open('model/regression_model_v01.pkl', 'rb') as file:
+        data = pickle.load(file)
+    return data
 
-    country_map = shorten_categories(df.Country.value_counts(), 400)
-    df['Country'] = df['Country'].map(country_map)
-    df = df[df["Salary"] <= 250000]
-    df = df[df["Salary"] >= 10000]
-    df = df[df["Country"] != 'Other']
+data = load_model()
 
-    df["YearsCodePro"] = df["YearsCodePro"].apply(clean_experience)
-    df["EdLevel"] = df["EdLevel"].apply(clean_education)
-    return df
+regressor_loaded = data["model"]
+le_country = data["le_country"]
+le_education = data["le_education"]
 
-df = load_data()
+def show_predict_page():
+    st.title('Predicción Salarial de Desarrollador de Software')
 
-def show_explore_page():
-    st.title("Explorar Sueldos de Ingeniero de Software")
+    st.write("""### Necesitamos información para predecir el salario""")
 
-    st.write(
-        """
-    ### Stack Overflow Developer Survey 2023
-    """
+    countries = (
+        "United States of America",
+        "India",
+        "United Kingdom of Great Britain and Northern Ireland",
+        "Germany",
+        "Canada",
+        "Brazil",
+        "France",
+        "Australia",
+        "Netherlands",
     )
 
-    data = df["Country"].value_counts()
-
-    fig1, ax1 = plt.subplots()
-    ax1.pie(data, labels=data.index, autopct="%1.1f%%", shadow=True, startangle=90)
-    ax1.axis("equal")  # Equal aspect ratio ensures that pie is drawn as a circle.
-
-    st.write("""#### Número de datos de diferentes países""")
-
-    st.pyplot(fig1)
-
-    st.write(
-        """
-    ### Salario medio según el país
-    """
+    education = (
+        "Less than a Bachelors",
+        "Bachelor’s degree",
+        "Master’s degree",
+        "Post grad",
     )
 
-    data = df.groupby(["Country"])["Salary"].mean().sort_values(ascending=True)
-    st.bar_chart(data)
+    country = st.selectbox("País", countries)
+    education = st.selectbox("Nivel de Educación", education)
 
-    st.write(
-        """
-    #### Salario medio basado en la experiencia
-    """
-    )
+    experience = st.slider("Años de Experiencia", 0, 50)
 
-    data = df.groupby(["YearsCodePro"])["Salary"].mean().sort_values(ascending=True)
-    st.line_chart(data)
+    ok = st.button("Calcular Salario")
+    if ok:
+        X = np.array([[country, education, experience]])
+        X[:, 0] = le_country.transform(X[:,0])
+        X[:, 1] = le_education.transform(X[:,1])
+        X = X.astype(float)
+
+        salary = regressor_loaded.predict(X)
+        st.subheader(f"El salario estimado es ${salary[0]:.2f}")
